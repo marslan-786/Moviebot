@@ -270,7 +270,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(handle_verify, pattern="^verify_joined$"))
-    app.add_handler(CallbackQueryHandler(handle_download, pattern=r"^download\|"))
+    app.add_handler(CallbackQueryHandler(handle_movie_selection, pattern=r"^select\|"))
     app.add_handler(CommandHandler("send", send_command))
     
 
