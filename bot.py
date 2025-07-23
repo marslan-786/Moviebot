@@ -11,7 +11,7 @@ import telegram
 import json
 
 # ✅ یہاں اپنے چینلز کے usernames رکھیں (without @)
-REQUIRED_CHANNELS = ["Only_possible_world", "Kami_broken5", "QayoomX_kami"]
+REQUIRED_CHANNELS = ["Only_possible_world", "QayoomX_kami"]
 MEMBERS_FILE = "members.json"
 OWNER_ID = 8003357608  # ← یہاں اپنی Telegram ID لگائیں
 
