@@ -90,12 +90,43 @@ async def handle_verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await save_user_id(user_id)
     
 
+import aiohttp
+
 SEARCH_API = "https://apis.davidcyriltech.my.id/movies/search?query="
+DOWNLOAD_API = "https://apis.davidcyriltech.my.id/movies/download?url="
+GPT_API = "https://apis.davidcyriltech.my.id/ai/gpt4?text="
 
+
+# 🎯 Step 1: Use GPT-4 to correct the movie name
+async def correct_movie_name(user_input: str) -> str:
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(GPT_API + user_input) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("response", user_input)
+                else:
+                    return user_input
+    except Exception:
+        return user_input
+
+
+# 🎯 Step 2: Handle text search with GPT-4 correction
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.message.text
-    res = requests.get(SEARCH_API + query).json()
+    user_input = update.message.text
 
+    # Step 1: Correct movie name using GPT
+    corrected_name = await correct_movie_name(user_input)
+
+    # Step 2: Call your movie search API with corrected name
+    async with aiohttp.ClientSession() as session:
+        async with session.get(SEARCH_API + corrected_name) as response:
+            if response.status != 200:
+                await update.message.reply_text("❌ API Error.")
+                return
+            res = await response.json()
+
+    # Step 3: Show results or not found
     if res["status"] and res["results"]:
         for movie in res["results"]:
             title = movie["title"]
@@ -117,10 +148,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     else:
         await update.message.reply_text("❌ No results found.")
-        
-        
-DOWNLOAD_API = "https://apis.davidcyriltech.my.id/movies/download?url="
 
+
+# 🎯 Step 3: Handle download via direct API
 async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -128,7 +158,14 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("download|"):
         url = data.split("|")[1]
-        res = requests.get(DOWNLOAD_API + url).json()
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(DOWNLOAD_API + url) as response:
+                if response.status != 200:
+                    await query.message.reply_text("❌ API Error.")
+                    return
+                res = await response.json()
+
         movie = res.get("movie", {})
         thumbnail = movie.get("thumbnail", "")
         links = movie.get("download_links", [])
