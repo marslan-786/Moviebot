@@ -118,14 +118,13 @@ async def correct_movie_name(user_input: str) -> str:
     return user_input.strip().title()
 
 # Step 2: Handle user movie name input
+MOVIE_LINKS = {}
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.message.text
     user_id = update.effective_user.id
-
-    # 1. GPT سے correct کرو
     corrected_name = await correct_movie_name(query)
 
-    # 2. Movie Search API کو call کرو
     async with aiohttp.ClientSession() as session:
         async with session.get(SEARCH_API + corrected_name) as resp:
             if resp.status != 200:
@@ -137,12 +136,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No movies found.")
         return
 
-    # 3. Show all results as buttons
+    MOVIE_LINKS[user_id] = {}
+
     buttons = []
-    for movie in data["results"]:
+    for i, movie in enumerate(data["results"]):
         title = movie["title"]
         link = movie["link"]
-        buttons.append([InlineKeyboardButton(title, callback_data=f"select|{link}")])
+        MOVIE_LINKS[user_id][str(i)] = link
+        buttons.append([InlineKeyboardButton(title, callback_data=f"select|{i}")])
 
     await update.message.reply_text(
         f"🔍 *Found {len(buttons)} results for:* `{corrected_name}`\n\n📽️ Select the movie:",
@@ -150,17 +151,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# Step 3: Handle movie selection from buttons
 async def handle_movie_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = update.effective_user.id
+    data_id = query.data.split("|", 1)[1]
 
-    if not query.data.startswith("select|"):
+    movie_url = MOVIE_LINKS.get(user_id, {}).get(data_id)
+
+    if not movie_url:
+        await query.message.reply_text("❌ Movie data expired or invalid.")
         return
 
-    movie_url = query.data.split("|", 1)[1]
-
-    # 1. Call download API
     async with aiohttp.ClientSession() as session:
         async with session.get(DOWNLOAD_API + movie_url) as resp:
             if resp.status != 200:
@@ -176,7 +178,6 @@ async def handle_movie_selection(update: Update, context: ContextTypes.DEFAULT_T
         await query.message.reply_text("❌ No download links found.")
         return
 
-    # 2. Prepare caption and buttons
     caption = "*🎬 Download Links Available:*\n\n"
     buttons = []
 
