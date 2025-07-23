@@ -13,7 +13,7 @@ import json
 # ✅ یہاں اپنے چینلز کے usernames رکھیں (without @)
 REQUIRED_CHANNELS = ["Only_possible_world", "Kami_broken5", "QayoomX_kami"]
 MEMBERS_FILE = "members.json"
-OWNER_ID = 123456789  # ← یہاں اپنی Telegram ID لگائیں
+OWNER_ID = 8003357608  # ← یہاں اپنی Telegram ID لگائیں
 
 async def is_user_joined_all_channels(bot, user_id):
     for channel in REQUIRED_CHANNELS:
@@ -67,26 +67,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ✅ Callback after pressing "Joined All – Start Bot"
 async def handle_verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = query.from_user.id
     await query.answer()
 
+    # چینل جوائن کیے ہیں یا نہیں چیک کریں
+    user_id = update.effective_user.id
     if not await is_user_joined_all_channels(context.bot, user_id):
-        await query.edit_message_text(
-            "❌ You haven't joined all required channels.\n\nPlease join them and press the button again.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🌟 Join Main Channel", url="https://t.me/Only_possible_world")],
-                [
-                    InlineKeyboardButton("🔹 Channel 1", url="https://t.me/Kami_broken5"),
-                    InlineKeyboardButton("🔹 Channel 2", url="https://t.me/QayoomX_kami")
-                ],
-                [InlineKeyboardButton("📁 Add Movie Folder", url="https://t.me/addlist/ADF-Bim3639iODM0")],
-                [InlineKeyboardButton("✅ Joined All – Start Bot", callback_data="verify_joined")]
-            ])
-        )
-    else:
-        await query.edit_message_text(
-            "✅ Verified! You can now search and download movies.\n\n🔍 Please send the name of the movie you want to search and download 🎬"
-        )
+        await query.message.reply_text("❌ Please join all required channels first.")
+        return
+
+    # پرانا پیغام (تصویر والا) delete کریں
+    try:
+        await query.message.delete()
+    except Exception as e:
+        print("Delete failed:", e)
+
+    # نیا پیغام بھیجیں
+    await query.message.chat.send_message(
+        "✅ Bot is now running!\n\n🔍 Please send the name of the movie you want to search and download 🎬"
+    )
+
+    # یوزر کو سیو کریں
+    await save_user_id(user_id)
     
 
 SEARCH_API = "https://apis.davidcyriltech.my.id/movies/search?query="
