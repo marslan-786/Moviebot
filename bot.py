@@ -89,107 +89,112 @@ async def handle_verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # یوزر کو سیو کریں
     await save_user_id(user_id)
     
-
 import aiohttp
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 
+# API URLs
+GPT_API = "https://apis.davidcyriltech.my.id/ai/gpt4?text="
 SEARCH_API = "https://apis.davidcyriltech.my.id/movies/search?query="
 DOWNLOAD_API = "https://apis.davidcyriltech.my.id/movies/download?url="
-GPT_API = "https://apis.davidcyriltech.my.id/ai/gpt4?text="
 
-
-# 🎯 Step 1: Use GPT-4 to correct the movie name
+# Step 1: Correct movie name using GPT
 async def correct_movie_name(user_input: str) -> str:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(GPT_API + user_input) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data.get("response", user_input)
-                else:
-                    return user_input
+                    # صرف title کے لیے استعمال کریں، پورا message نہ لیں
+                    response = data.get("message", "")
+                    if " is a " in response:
+                        return user_input.strip().title()  # fallback to user input
+                    return response.strip().title()
     except Exception:
-        return user_input
+        pass
+    return user_input.strip().title()
 
-
-# 🎯 Step 2: Handle text search with GPT-4 correction
+# Step 2: Handle user movie name input
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text
+    query = update.message.text
+    user_id = update.effective_user.id
 
-    # Step 1: Correct movie name using GPT
-    corrected_name = await correct_movie_name(user_input)
+    # 1. GPT سے correct کرو
+    corrected_name = await correct_movie_name(query)
 
-    # Step 2: Call your movie search API with corrected name
+    # 2. Movie Search API کو call کرو
     async with aiohttp.ClientSession() as session:
-        async with session.get(SEARCH_API + corrected_name) as response:
-            if response.status != 200:
-                await update.message.reply_text("❌ API Error.")
+        async with session.get(SEARCH_API + corrected_name) as resp:
+            if resp.status != 200:
+                await update.message.reply_text("❌ API Error")
                 return
-            res = await response.json()
+            data = await resp.json()
 
-    # Step 3: Show results or not found
-    if res["status"] and res["results"]:
-        for movie in res["results"]:
-            title = movie["title"]
-            imdb = movie["imdb"]
-            year = movie["year"]
-            image = movie["image"]
-            link = movie["link"]
+    if not data.get("status") or not data.get("results"):
+        await update.message.reply_text("❌ No movies found.")
+        return
 
-            caption = f"*🎬 {title}*\n⭐ {imdb}\n📅 Year: {year}"
-            buttons = InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬇️ Download", callback_data=f"download|{link}")]
-            ])
+    # 3. Show all results as buttons
+    buttons = []
+    for movie in data["results"]:
+        title = movie["title"]
+        link = movie["link"]
+        buttons.append([InlineKeyboardButton(title, callback_data=f"select|{link}")])
 
-            await update.message.reply_photo(
-                photo=image,
-                caption=caption,
-                parse_mode="Markdown",
-                reply_markup=buttons
-            )
-    else:
-        await update.message.reply_text("❌ No results found.")
+    await update.message.reply_text(
+        f"🔍 *Found {len(buttons)} results for:* `{corrected_name}`\n\n📽️ Select the movie:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
-
-# 🎯 Step 3: Handle download via direct API
-async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Step 3: Handle movie selection from buttons
+async def handle_movie_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
 
-    if data.startswith("download|"):
-        url = data.split("|")[1]
+    if not query.data.startswith("select|"):
+        return
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(DOWNLOAD_API + url) as response:
-                if response.status != 200:
-                    await query.message.reply_text("❌ API Error.")
-                    return
-                res = await response.json()
+    movie_url = query.data.split("|", 1)[1]
 
-        movie = res.get("movie", {})
-        thumbnail = movie.get("thumbnail", "")
-        links = movie.get("download_links", [])
+    # 1. Call download API
+    async with aiohttp.ClientSession() as session:
+        async with session.get(DOWNLOAD_API + movie_url) as resp:
+            if resp.status != 200:
+                await query.message.reply_text("❌ Failed to fetch download links.")
+                return
+            data = await resp.json()
 
-        if not links:
-            await query.message.reply_text("❌ No download links found.")
-            return
+    movie = data.get("movie", {})
+    thumbnail = movie.get("thumbnail", "")
+    links = movie.get("download_links", [])
 
-        caption = "*🎬 Available Qualities:*\n\n"
-        buttons = []
+    if not links:
+        await query.message.reply_text("❌ No download links found.")
+        return
 
-        for item in links:
-            q = item["quality"]
-            s = item["size"]
-            d = item["direct_download"]
-            caption += f"✅ *{q}* ({s})\n"
-            buttons.append([InlineKeyboardButton(f"{q} ({s})", url=d)])
+    # 2. Prepare caption and buttons
+    caption = "*🎬 Download Links Available:*\n\n"
+    buttons = []
 
-        await query.message.reply_photo(
-            photo=thumbnail,
-            caption=caption,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+    for item in links:
+        q = item["quality"]
+        s = item["size"]
+        d = item["direct_download"]
+        caption += f"✅ *{q}* — {s}\n"
+        buttons.append([InlineKeyboardButton(f"{q} ({s})", url=d)])
+
+    await query.message.reply_photo(
+        photo=thumbnail,
+        caption=caption,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+# Start basic handler (placeholder if needed)
         
 from telegram import Update, ChatMemberAdministrator
 from telegram.ext import CommandHandler, ContextTypes
